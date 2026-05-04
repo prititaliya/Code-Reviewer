@@ -55,6 +55,7 @@ def Orchestrator(state: CommentReviewBotState) -> CommentReviewBotState:
     else:
         answer_text = str(answer)
     print("Model's answer:", answer_text)
+    logger.info("Model generated an answer for the comment: %s", answer_text)   
     state['answer'] = answer_text
     return state
 
