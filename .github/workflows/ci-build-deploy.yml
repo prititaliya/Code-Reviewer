@@ -167,7 +167,9 @@ jobs:
             echo "AWS secrets not provided in repository; skipping configure-aws-credentials action"
           fi
 
-      - name: Deploy artifact from S3 to Lambda (if configured)
+      # No local artifact download: we update Lambda from S3 only per repo policy
+
+      - name: Deploy artifact to Lambda (S3 only)
         run: |
           # Allow secrets to override env; check either for AUTO_DEPLOY
           if [ "${{ secrets.AUTO_DEPLOY }}" = "true" ] || [ "${AUTO_DEPLOY:-false}" = "true" ]; then
@@ -189,4 +191,4 @@ jobs:
 
           echo "Updating Lambda function $STAGING_LAMBDA_FUNCTION_NAME from S3 (bucket: github-code-reviewer)..."
           aws lambda update-function-code --function-name "$STAGING_LAMBDA_FUNCTION_NAME" --s3-bucket github-code-reviewer --s3-key aws_lambda_artifact.zip --region ${AWS_REGION:-us-east-2}
-          echo "Lambda update requested."
+          echo "Lambda update requested via S3."
