@@ -26,6 +26,8 @@ async def github_webhook(request: Request):
         action = payload.get("action", "")
         comment = payload.get("comment", {})
         pull_request = payload.get("pull_request", {})
+        issue = payload.get("issue", {})
+        issue_pull_request = issue.get("pull_request", {})
         repository = payload.get("repository", {})
         sender = payload.get("sender", {})
 
@@ -39,10 +41,13 @@ async def github_webhook(request: Request):
         if (action == "created" or action == "edited") and comment:
             if "@review-bot" in comment.get("body", ""):
                 logger.info("Review bot mentioned in comment")
+                if not pull_request:
+                    pull_request = issue_pull_request
                 state = CommentReviewBotState(
                     action=action,
                     comment=comment,
                     pull_request=pull_request,
+                    issue=issue,
                     repository=repository,
                     sender=sender,
                     answer=None,
