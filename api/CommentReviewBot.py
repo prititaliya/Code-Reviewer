@@ -22,18 +22,18 @@ load_dotenv()
 import boto3
 from botocore.exceptions import ClientError
 
-
 def getSecretFromAWSSecretManager(
     secret_name="openai_api_key",
-    secret_key="OPENAI_API_KEY",
+    secret_key="OPEN_AI_API_KEY", # Corrected to match the screenshot
     region_name="us-east-2",
 ):
     session = boto3.session.Session()
     client = session.client(
         service_name='secretsmanager',
         region_name=region_name
-    )
+    )    
     try:
+        logger.info("Retrieving secret '%s' from AWS Secrets Manager", secret_name)
         get_secret_value_response = client.get_secret_value(
             SecretId=secret_name
         )
@@ -43,19 +43,19 @@ def getSecretFromAWSSecretManager(
     secret = get_secret_value_response['SecretString']
     secret_dict = json.loads(secret)
     return secret_dict.get(secret_key)
-    
 def get_model(
         temperature: float = 0.0,
         bind_tools: bool = False,
         tool_choice: str | None = None,    
     ):
         try:
-            openai_api_key = os.getenv("OPENAI_API_KEY") or getSecretFromAWSSecretManager()
+            openai_api_key = getSecretFromAWSSecretManager() or os.getenv("OPENAI_API_KEY")
+            os.environ["OPENAI_API_KEY"] = openai_api_key
             model = init_chat_model(
                 model="gpt-5.4-mini",
                 model_provider="openai",   
                 temperature=temperature, 
-                api_key=openai_api_key or os.getenv("OPENAI_API_KEY")
+                api_key=openai_api_key
             )
             # if bind_tools:
             #     kwargs = {"tool_choice": tool_choice} if tool_choice else {}
