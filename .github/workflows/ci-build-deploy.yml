@@ -1,0 +1,84 @@
+name: CI Build & Optional Deploy
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      deploy_to_staging:
+        description: 'If true, deploy built artifact to the staging Lambda'
+        required: false
+        default: 'false'
+
+jobs:
+  build:
+    name: Build Lambda artifact
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirement*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Rust toolchain (for packages like tiktoken)
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y
+          echo "$HOME/.cargo/env" >> $GITHUB_ENV
+
+      - name: Build dependencies and package
+        run: |
+          rm -rf build_pkg aws_lambda_artifact.zip
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r requirement.txt -t build_pkg
+          cp -R api *.py build_pkg || true
+          cd build_pkg
+          zip -r9 ../aws_lambda_artifact.zip .
+          cd ..
+
+      - name: Verify artifact
+        run: |
+          ls -lh aws_lambda_artifact.zip || true
+          unzip -l aws_lambda_artifact.zip | head -n 40 || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-zip
+          path: aws_lambda_artifact.zip
+
+  deploy-staging:
+    name: Deploy to Staging (manual)
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_to_staging == 'true'
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-zip
+          path: .
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
+
+      - name: Deploy to Lambda (staging)
+        env:
+          FUNCTION_NAME: ${{ secrets.STAGING_LAMBDA_FUNCTION_NAME }}
+        run: |
+          if [ -z "$FUNCTION_NAME" ]; then echo "STAGING_LAMBDA_FUNCTION_NAME secret is not set" && exit 1; fi
+          aws lambda update-function-code --function-name "$FUNCTION_NAME" --zip-file fileb://aws_lambda_artifact.zip --region ${{ secrets.AWS_REGION || 'us-east-2' }}
