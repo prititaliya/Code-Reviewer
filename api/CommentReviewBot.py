@@ -125,7 +125,7 @@ def post_an_answer_to_github(state):
 
     url = f"https://api.github.com/repos/{repo}/issues/{number}/comments"
     print("Posting answer to GitHub:", body_text, "->", url)
-    # response = requests.post(url, json={"body": body_text}, headers=headers)
+    response = requests.post(url, json={"body": body_text}, headers=headers)
     if response.status_code == 201:
         print("Answer posted successfully!")
     else:
