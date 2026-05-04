@@ -89,6 +89,19 @@ jobs:
           name: lambda-zip
           path: aws_lambda_artifact.zip
 
+      - name: Configure AWS credentials for S3 upload
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
+
+      - name: Upload artifact to S3
+        run: |
+          echo "Uploading aws_lambda_artifact.zip to S3..."
+          aws s3 cp aws_lambda_artifact.zip s3://github-code-reviewer/aws_lambda_artifact.zip --region ${{ secrets.AWS_REGION || 'us-east-2' }}
+          echo "Upload complete!"
+
   deploy-staging:
     name: Deploy to Staging (manual)
     needs: build
