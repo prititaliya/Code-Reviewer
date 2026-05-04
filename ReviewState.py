@@ -42,3 +42,11 @@ class ReviewState(TypedDict, total=False):
     context_for_thoughts: str
     messages: Annotated[list[BaseMessage], add_messages]
     API_Change_Flag: bool
+
+class CommentReviewBotState(TypedDict):
+    action: str
+    comment: dict
+    pull_request: dict
+    repository: dict
+    sender: dict
+    answer: Optional[str]

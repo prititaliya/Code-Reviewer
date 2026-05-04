@@ -1,0 +1,10 @@
+.env
+sample*
+final*
+__pycache__
+*.pyc
+sample_comments.json
+final_summary.md
+final_state.txt
+sample_code_diff.txt
+sample_diff_stats.txt
