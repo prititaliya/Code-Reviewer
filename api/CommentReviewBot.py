@@ -19,6 +19,17 @@ from Tools import think_tool, tavily_search, cross_repository_search
 import requests
 from dotenv import find_dotenv, load_dotenv
 load_dotenv()
+import boto3
+from botocore.exceptions import ClientError
+def getSecretFromAWSSecretManager(secret_name="openai_api_key", region_name="us-east-2"):
+    session = boto3.session.Session()
+    client = session.client(service_name='secretsmanager', region_name=region_name)
+    try:
+        response = client.get_secret_value(SecretId=secret_name)
+        return response['SecretString']
+    except ClientError as e:
+        logger.exception("Failed to retrieve secret from AWS Secrets Manager")
+        raise e
 
 def get_model(
         temperature: float = 0.0,
@@ -26,12 +37,12 @@ def get_model(
         tool_choice: str | None = None,    
     ):
         try:
-
+            openai_api_key = getSecretFromAWSSecretManager();
             model = init_chat_model(
                 model="gpt-5.4-mini",
                 model_provider="openai",   
                 temperature=temperature, 
-                api_key=os.getenv("OPENAI_API_KEY")
+                api_key=openai_api_key or os.getenv("OPENAI_API_KEY")
             )
             # if bind_tools:
             #     kwargs = {"tool_choice": tool_choice} if tool_choice else {}
