@@ -49,8 +49,31 @@ jobs:
 
       - name: Verify artifact
         run: |
-          ls -lh aws_lambda_artifact.zip || true
-          unzip -l aws_lambda_artifact.zip | head -n 40 || true
+          set -e
+          echo "Artifact size:"; ls -lh aws_lambda_artifact.zip || true
+          echo "Top-level entries in zip:";
+          unzip -l aws_lambda_artifact.zip | awk 'NR>3 && NF>0 {print $4}' | awk -F"/" '{print $1}' | sort -u || true
+          echo "Listing first 200 entries:";
+          unzip -l aws_lambda_artifact.zip | sed -n '1,200p'
+
+          echo "Checking for key packages..."
+          if unzip -l aws_lambda_artifact.zip | grep -i "fastapi" -q; then
+            echo "fastapi found"
+          else
+            echo "ERROR: fastapi NOT found in artifact"; exit 1
+          fi
+
+          if unzip -l aws_lambda_artifact.zip | grep -iE "pydantic_core|_pydantic_core|pydantic_core.*\.so" -q; then
+            echo "pydantic_core native extension found"
+          else
+            echo "WARNING: pydantic_core native extension not found"
+          fi
+
+          if unzip -l aws_lambda_artifact.zip | grep -i "tiktoken" -q; then
+            echo "tiktoken found"
+          else
+            echo "tiktoken not found (may be okay if not required)"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
