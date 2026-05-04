@@ -1,4 +1,5 @@
-from typing import Literal, TypedDict
+from typing import Literal
+from typing_extensions import TypedDict
 from langchain_core import messages
 from langchain_core.messages import SystemMessage, HumanMessage,AIMessage,ToolMessage
 from langchain.chat_models import init_chat_model

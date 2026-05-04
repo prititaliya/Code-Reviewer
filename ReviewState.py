@@ -1,5 +1,6 @@
 from pyexpat.errors import messages
-from typing import Annotated, List, Any, Optional, TypedDict
+from typing import Annotated, List, Any, Optional
+from typing_extensions import TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 

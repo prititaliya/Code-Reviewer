@@ -9,7 +9,8 @@ from ReviewState import ReviewState
 from InputFormatter import InputFormatter
 from langchain_core.messages import SystemMessage, HumanMessage,AIMessage,ToolMessage
 from langchain.chat_models import init_chat_model
-from typing import Literal, TypedDict
+from typing import Literal
+from typing_extensions import TypedDict
 
 from Tools import think_tool,tavily_search, cross_repository_search
 from langgraph.prebuilt import tools_condition, ToolNode
