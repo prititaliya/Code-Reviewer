@@ -3,6 +3,8 @@ name: CI Build & Optional Deploy
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  push:
+    branches: [ main ]
   workflow_dispatch:
     inputs:
       deploy_to_staging:
@@ -14,6 +16,8 @@ jobs:
   build:
     name: Build Lambda artifact
     runs-on: ubuntu-latest
+    outputs:
+      s3_key: ${{ steps.set-s3-key.outputs.s3_key }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,6 +58,12 @@ jobs:
           cd build_pkg
           zip -r9 ../aws_lambda_artifact.zip .
           cd ..
+
+      - name: Set S3 key
+        id: set-s3-key
+        run: |
+          echo "s3_key=aws_lambda_artifact-${GITHUB_SHA}.zip" >> $GITHUB_OUTPUT
+        shell: bash
 
       - name: Verify artifact
         run: |
@@ -97,9 +107,12 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
 
       - name: Upload artifact to S3
+        env:
+          S3_KEY: ${{ steps.set-s3-key.outputs.s3_key }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
         run: |
-          echo "Uploading aws_lambda_artifact.zip to S3..."
-          aws s3 cp aws_lambda_artifact.zip s3://github-code-reviewer/aws_lambda_artifact.zip --region ${{ secrets.AWS_REGION || 'us-east-2' }}
+          echo "Uploading aws_lambda_artifact.zip to S3 as $S3_KEY..."
+          aws s3 cp aws_lambda_artifact.zip s3://github-code-reviewer/${S3_KEY} --region ${AWS_REGION}
           echo "Upload complete!"
 
   deploy-staging:
@@ -170,12 +183,18 @@ jobs:
       # No local artifact download: we update Lambda from S3 only per repo policy
 
       - name: Deploy artifact to Lambda (S3 only)
+        env:
+          S3_KEY: ${{ needs.build.outputs.s3_key }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
+          AUTO_DEPLOY_SECRET: ${{ secrets.AUTO_DEPLOY }}
         run: |
-          # Allow secrets to override env; check either for AUTO_DEPLOY
-          if [ "${{ secrets.AUTO_DEPLOY }}" = "true" ] || [ "${AUTO_DEPLOY:-false}" = "true" ]; then
-            echo "AUTO_DEPLOY enabled"
+          # Proceed only when on main branch or AUTO_DEPLOY is enabled (secret or env.local)
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            echo "Running on main branch — allowing deploy"
+          elif [ "${AUTO_DEPLOY_SECRET}" = "true" ] || [ "${AUTO_DEPLOY:-false}" = "true" ]; then
+            echo "AUTO_DEPLOY enabled via secret or env — allowing deploy"
           else
-            echo "AUTO_DEPLOY not enabled (secrets or env); skipping auto-deploy"
+            echo "Not on main and AUTO_DEPLOY not set; skipping auto-deploy"
             exit 0
           fi
 
@@ -189,6 +208,6 @@ jobs:
             exit 0
           fi
 
-          echo "Updating Lambda function $STAGING_LAMBDA_FUNCTION_NAME from S3 (bucket: github-code-reviewer)..."
-          aws lambda update-function-code --function-name "$STAGING_LAMBDA_FUNCTION_NAME" --s3-bucket github-code-reviewer --s3-key aws_lambda_artifact.zip --region ${AWS_REGION:-us-east-2}
-          echo "Lambda update requested via S3."
+          echo "Updating Lambda function $STAGING_LAMBDA_FUNCTION_NAME from S3 (bucket: github-code-reviewer, key: $S3_KEY) with publish..."
+          aws lambda update-function-code --function-name "$STAGING_LAMBDA_FUNCTION_NAME" --s3-bucket github-code-reviewer --s3-key ${S3_KEY} --region ${AWS_REGION:-us-east-2} --publish
+          echo "Lambda update requested via S3 (published)."
