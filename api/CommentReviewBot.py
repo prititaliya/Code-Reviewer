@@ -11,7 +11,8 @@ from langchain_core.messages import SystemMessage, HumanMessage,AIMessage,ToolMe
 from langchain.chat_models import init_chat_model
 from typing import Literal
 from typing_extensions import TypedDict
-
+import logging
+logger = logging.getLogger(__name__)
 from Tools import think_tool,tavily_search, cross_repository_search
 from langgraph.prebuilt import tools_condition, ToolNode
 from Tools import think_tool, tavily_search, cross_repository_search
@@ -24,16 +25,21 @@ def get_model(
         bind_tools: bool = False,
         tool_choice: str | None = None,    
     ):
-        model = init_chat_model(
-            model="gpt-5.4-mini",
-            model_provider="openai",   
-            temperature=temperature, 
-            api_key=os.getenv("OPENAI_API_KEY")
-        )
-        # if bind_tools:
-        #     kwargs = {"tool_choice": tool_choice} if tool_choice else {}
-        #     return model.bind_tools([think_tool,tavily_search, cross_repository_search], **kwargs)
-        return model
+        try:
+
+            model = init_chat_model(
+                model="gpt-5.4-mini",
+                model_provider="openai",   
+                temperature=temperature, 
+                api_key=os.getenv("OPENAI_API_KEY")
+            )
+            # if bind_tools:
+            #     kwargs = {"tool_choice": tool_choice} if tool_choice else {}
+            #     return model.bind_tools([think_tool,tavily_search, cross_repository_search], **kwargs)
+            return model
+        except Exception as e:
+            logger.exception("Failed to initialize the model")
+            raise e
 
 def Orchestrator(state: CommentReviewBotState) -> CommentReviewBotState:
     pull_request_diff = requests.get(state['pull_request']['url'] + "/diff").text   
