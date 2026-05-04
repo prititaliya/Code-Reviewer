@@ -119,7 +119,8 @@ def post_an_answer_to_github(state):
     if not repo:
         print("Missing repository.full_name in state"); return
 
-    number = (state.get("pull_request") or {}).get("number") or (state.get("issue") or {}).get("number") or state.get("issue_number")
+    number = pull_request.get("number") or issue.get("number")
+    print("Extracted issue/pr number:", number,pull_request, issue)
     if not number:
         print("No issue/pr number found in state"); return
 
