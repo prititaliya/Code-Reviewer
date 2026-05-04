@@ -39,9 +39,17 @@ jobs:
 
       - name: Build dependencies and package
         run: |
+          set -e
           rm -rf build_pkg aws_lambda_artifact.zip
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -r requirement.txt -t build_pkg
+          echo "Installing requirements into build_pkg..."
+          python -m pip install -r requirement.txt -t build_pkg --verbose
+          echo "Post-install pip freeze:"
+          python -m pip freeze | head -n 30
+          echo "Contents of build_pkg (first 50 dirs):"
+          ls -la build_pkg | head -n 50
+          echo "Checking for fastapi in build_pkg:"
+          ls build_pkg | grep -i fastapi || echo "WARNING: fastapi directory not found!"
           cp -R api *.py build_pkg || true
           cd build_pkg
           zip -r9 ../aws_lambda_artifact.zip .
