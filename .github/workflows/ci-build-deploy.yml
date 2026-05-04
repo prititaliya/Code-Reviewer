@@ -127,3 +127,64 @@ jobs:
         run: |
           if [ -z "$FUNCTION_NAME" ]; then echo "STAGING_LAMBDA_FUNCTION_NAME secret is not set" && exit 1; fi
           aws lambda update-function-code --function-name "$FUNCTION_NAME" --zip-file fileb://aws_lambda_artifact.zip --region ${{ secrets.AWS_REGION || 'us-east-2' }}
+
+  deploy-auto:
+    name: Deploy to Staging (automated)
+    needs: build
+    runs-on: ubuntu-latest
+    # This job always runs after `build`. It will attempt to auto-deploy the
+    # artifact only when a staging function name and AWS credentials are
+    # available. Those can come from repository secrets or from an env file
+    # checked into the repo (env.local or .env). Using repo secrets is
+    # recommended for credentials.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Source env file if present (env.local or .env)
+        run: |
+          if [ -f env.local ]; then
+            echo "Sourcing env.local"
+            set -a
+            . ./env.local
+            set +a
+          elif [ -f .env ]; then
+            echo "Sourcing .env"
+            set -a
+            . ./.env
+            set +a
+          else
+            echo "No env.local or .env found; relying on repository secrets if set"
+          fi
+
+      - name: Configure AWS credentials from secrets (if present)
+        if: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' }}
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
+
+      - name: Deploy artifact from S3 to Lambda (if configured)
+        run: |
+          # Allow secrets to override env; check either for AUTO_DEPLOY
+          if [ "${{ secrets.AUTO_DEPLOY }}" = "true" ] || [ "${AUTO_DEPLOY:-false}" = "true" ]; then
+            echo "AUTO_DEPLOY enabled"
+          else
+            echo "AUTO_DEPLOY not enabled (secrets or env); skipping auto-deploy"
+            exit 0
+          fi
+
+          if [ -z "${STAGING_LAMBDA_FUNCTION_NAME:-}" ]; then
+            echo "STAGING_LAMBDA_FUNCTION_NAME not set in secrets or env file; skipping auto-deploy"
+            exit 0
+          fi
+
+          if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "AWS credentials not set in secrets or env file; skipping auto-deploy"
+            exit 0
+          fi
+
+          echo "Updating Lambda function $STAGING_LAMBDA_FUNCTION_NAME from S3 (bucket: github-code-reviewer)..."
+          aws lambda update-function-code --function-name "$STAGING_LAMBDA_FUNCTION_NAME" --s3-bucket github-code-reviewer --s3-key aws_lambda_artifact.zip --region ${AWS_REGION:-us-east-2}
+          echo "Lambda update requested."
