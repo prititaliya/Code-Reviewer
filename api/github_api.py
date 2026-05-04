@@ -16,6 +16,7 @@ def read_root():
 
 @app.post("/")
 async def github_webhook(request: Request):
+    print("Received a webhook request from GitHub")
     try:
         payload = await request.json()
     except Exception:

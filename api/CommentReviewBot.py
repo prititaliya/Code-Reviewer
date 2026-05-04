@@ -43,6 +43,7 @@ def getSecretFromAWSSecretManager(
     secret = get_secret_value_response['SecretString']
     secret_dict = json.loads(secret)
     return secret_dict.get(secret_key)
+
 def get_model(
         temperature: float = 0.0,
         bind_tools: bool = False,
@@ -66,17 +67,17 @@ def get_model(
             raise e
 
 def Orchestrator(state: CommentReviewBotState) -> CommentReviewBotState:
+    # logger.info("Orchestrator started processing the state for comment ID: %s", state.comment.get("id"))    
     pull_request = state.get("pull_request") or {}
     issue = state.get("issue") or {}
     issue_pull_request = issue.get("pull_request") or {}
 
     pull_request_url = pull_request.get("url") or issue_pull_request.get("url")
-    pull_request_diff_url = issue_pull_request.get("diff_url")
-
+    pull_request_diff_url = pull_request.get("diff_url")
     if not pull_request_url and not pull_request_diff_url:
         raise KeyError("pull_request.url")
-
-    pull_request_diff = requests.get(pull_request_diff_url or f"{pull_request_url}/diff").text   
+    print("Fetching pull request diff from:", pull_request_diff_url)
+    pull_request_diff = requests.get(pull_request_diff_url).text   
     system_message = SystemMessage(content="You are a Pull Request Question Answering Bot. Your task is to answer questions related to a Pull Request based on the review comments, code changes, and other relevant information. You should provide clear and concise answers to the questions asked by users.")
     user_message = HumanMessage(content="I want you to answer this question related to a Pull Request: " + state['comment']['body'] + ". Here is some information about the Pull Request: " + str(state) + ". The diff of the Pull Request is: " + pull_request_diff)
     class OrchestratorResponse(TypedDict):
@@ -94,7 +95,7 @@ def Orchestrator(state: CommentReviewBotState) -> CommentReviewBotState:
     return state
 
 def post_an_answer_to_github(state):
-    token = getSecretFromAWSSecretManager("GITHUB_TOKEN","GITHUB_TOKEN") or os.getenv("HUB_TOKEN") or os.getenv("GITHUB_TOKEN")
+    token = getSecretFromAWSSecretManager("GITHUB_TOKEN","GITHUB_TOKEN") or os.getenv("HUB_TOKEN")
     if not token:
         logger.error("Missing GitHub token. Set HUB_TOKEN or GITHUB_TOKEN before posting comments.")
         return
@@ -124,7 +125,7 @@ def post_an_answer_to_github(state):
 
     url = f"https://api.github.com/repos/{repo}/issues/{number}/comments"
     print("Posting answer to GitHub:", body_text, "->", url)
-    response = requests.post(url, json={"body": body_text}, headers=headers)
+    # response = requests.post(url, json={"body": body_text}, headers=headers)
     if response.status_code == 201:
         print("Answer posted successfully!")
     else:
