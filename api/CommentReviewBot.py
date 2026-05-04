@@ -21,12 +21,40 @@ from dotenv import find_dotenv, load_dotenv
 load_dotenv()
 import boto3
 from botocore.exceptions import ClientError
-def getSecretFromAWSSecretManager(secret_name="openai_api_key", region_name="us-east-2"):
+
+
+def getSecretFromAWSSecretManager(
+    secret_name="openai_api_key",
+    secret_key="OPENAI_API_KEY",
+    region_name="us-east-2",
+):
     session = boto3.session.Session()
     client = session.client(service_name='secretsmanager', region_name=region_name)
     try:
         response = client.get_secret_value(SecretId=secret_name)
-        return response['SecretString']
+        secret_string = response.get('SecretString', '')
+        if not secret_string:
+            return ""
+
+        try:
+            secret_payload = json.loads(secret_string)
+        except json.JSONDecodeError:
+            return secret_string.strip().strip('"').strip("'")
+
+        if isinstance(secret_payload, dict):
+            value = secret_payload.get(secret_key)
+            if isinstance(value, str) and value.strip():
+                return value.strip().strip('"').strip("'")
+
+            for key in ("openai_api_key", "api_key", "key", "secret"):
+                value = secret_payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip().strip('"').strip("'")
+
+        if isinstance(secret_payload, str):
+            return secret_payload.strip().strip('"').strip("'")
+
+        return secret_string.strip().strip('"').strip("'")
     except ClientError as e:
         logger.exception("Failed to retrieve secret from AWS Secrets Manager")
         raise e
@@ -37,7 +65,7 @@ def get_model(
         tool_choice: str | None = None,    
     ):
         try:
-            openai_api_key = getSecretFromAWSSecretManager();
+            openai_api_key = os.getenv("OPENAI_API_KEY") or getSecretFromAWSSecretManager()
             model = init_chat_model(
                 model="gpt-5.4-mini",
                 model_provider="openai",   

@@ -62,7 +62,7 @@ jobs:
       - name: Set S3 key
         id: set-s3-key
         run: |
-          echo "s3_key=aws_lambda_artifact-${GITHUB_SHA}.zip" >> $GITHUB_OUTPUT
+          echo "s3_key=aws_lambda_artifact.zip" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Verify artifact
@@ -111,8 +111,8 @@ jobs:
           S3_KEY: ${{ steps.set-s3-key.outputs.s3_key }}
           AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
         run: |
-          echo "Removing old Lambda artifacts from S3..."
-          aws s3 rm s3://github-code-reviewer/ --recursive --exclude "*" --include "aws_lambda_artifact-*.zip" --region ${AWS_REGION}
+          echo "Removing old Lambda artifact from S3..."
+          aws s3 rm s3://github-code-reviewer/${S3_KEY} --region ${AWS_REGION} || true
           echo "Uploading aws_lambda_artifact.zip to S3 as $S3_KEY..."
           aws s3 cp aws_lambda_artifact.zip s3://github-code-reviewer/${S3_KEY} --region ${AWS_REGION}
           echo "Upload complete!"
