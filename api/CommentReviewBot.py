@@ -24,7 +24,7 @@ from botocore.exceptions import ClientError
 
 def getSecretFromAWSSecretManager(
     secret_name="openai_api_key",
-    secret_key="OPEN_AI_API_KEY", # Corrected to match the screenshot
+    secret_key="OPEN_AI_API_KEY", 
     region_name="us-east-2",
 ):
     session = boto3.session.Session()
@@ -84,8 +84,12 @@ def Orchestrator(state: CommentReviewBotState) -> CommentReviewBotState:
     return state
 
 def post_an_answer_to_github(state):
-    token = os.getenv("HUB_TOKEN") or os.getenv("GITHUB_TOKEN")
-    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    token = getSecretFromAWSSecretManager("GITHUB_TOKEN","GITHUB_TOKEN") or os.getenv("HUB_TOKEN") or os.getenv("GITHUB_TOKEN")
+    if not token:
+        logger.error("Missing GitHub token. Set HUB_TOKEN or GITHUB_TOKEN before posting comments.")
+        return
+
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
 
     answer_text = state.get("answer") or ""
     if isinstance(answer_text, dict):
