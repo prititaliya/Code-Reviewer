@@ -29,36 +29,21 @@ def getSecretFromAWSSecretManager(
     region_name="us-east-2",
 ):
     session = boto3.session.Session()
-    client = session.client(service_name='secretsmanager', region_name=region_name)
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
+    )
     try:
-        response = client.get_secret_value(SecretId=secret_name)
-        secret_string = response.get('SecretString', '')
-        if not secret_string:
-            return ""
-
-        try:
-            secret_payload = json.loads(secret_string)
-        except json.JSONDecodeError:
-            return secret_string.strip().strip('"').strip("'")
-
-        if isinstance(secret_payload, dict):
-            value = secret_payload.get(secret_key)
-            if isinstance(value, str) and value.strip():
-                return value.strip().strip('"').strip("'")
-
-            for key in ("openai_api_key", "api_key", "key", "secret"):
-                value = secret_payload.get(key)
-                if isinstance(value, str) and value.strip():
-                    return value.strip().strip('"').strip("'")
-
-        if isinstance(secret_payload, str):
-            return secret_payload.strip().strip('"').strip("'")
-
-        return secret_string.strip().strip('"').strip("'")
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
     except ClientError as e:
         logger.exception("Failed to retrieve secret from AWS Secrets Manager")
         raise e
-
+    secret = get_secret_value_response['SecretString']
+    secret_dict = json.loads(secret)
+    return secret_dict.get(secret_key)
+    
 def get_model(
         temperature: float = 0.0,
         bind_tools: bool = False,
