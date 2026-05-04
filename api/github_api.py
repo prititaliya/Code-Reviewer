@@ -6,7 +6,7 @@ app = FastAPI()
 handler = Mangum(app)
 @app.get("/")
 def read_root():
-    return {"Hello": "World1"}
+    return {"Hello": "World"}
 
 
 @app.post("/")
