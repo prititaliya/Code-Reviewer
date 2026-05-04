@@ -141,29 +141,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Source env file if present (env.local or .env)
+      - name: Source env.local if present
         run: |
           if [ -f env.local ]; then
             echo "Sourcing env.local"
             set -a
             . ./env.local
             set +a
-          elif [ -f .env ]; then
-            echo "Sourcing .env"
-            set -a
-            . ./.env
-            set +a
           else
-            echo "No env.local or .env found; relying on repository secrets if set"
+            echo "No env.local found; relying on repository secrets"
           fi
 
       - name: Configure AWS credentials from secrets (if present)
-        if: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' }}
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
+        run: |
+          if [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "Configuring AWS CLI from repository secrets"
+            aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
+            aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
+            aws configure set region "${AWS_REGION:-us-east-2}"
+          else
+            echo "AWS secrets not provided in repository; skipping configure-aws-credentials action"
+          fi
 
       - name: Deploy artifact from S3 to Lambda (if configured)
         run: |
