@@ -48,6 +48,8 @@ class CommentReviewBotState(TypedDict):
     action: str
     comment: dict
     pull_request: dict
+    issue: dict
     repository: dict
     sender: dict
+    number: int
     answer: Optional[str]

@@ -31,6 +31,7 @@ async def github_webhook(request: Request):
         issue_pull_request = issue.get("pull_request", {})
         repository = payload.get("repository", {})
         sender = payload.get("sender", {})
+        number = issue.get("number") or pull_request.get("number") or issue_pull_request.get("number")
 
         logger.info(
             "Webhook received action=%s repository=%s comment_present=%s",
@@ -51,6 +52,7 @@ async def github_webhook(request: Request):
                     issue=issue,
                     repository=repository,
                     sender=sender,
+                    number=number,
                     answer=None,
                 )
                 run_agent(state)
