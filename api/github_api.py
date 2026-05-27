@@ -1,4 +1,5 @@
 import logging
+import threading
 
 from fastapi import FastAPI, Request, HTTPException
 from api.CommentReviewBot import Orchestrator, post_an_answer_to_github,run_agent
@@ -7,6 +8,13 @@ from mangum import Mangum
 app = FastAPI()
 handler = Mangum(app)
 logger = logging.getLogger(__name__)
+
+
+def _process_review_comment(state: CommentReviewBotState) -> None:
+    try:
+        run_agent(state)
+    except Exception:
+        logger.exception("Background webhook processing failed")
 
 
 @app.get("/")
@@ -59,8 +67,8 @@ async def github_webhook(request: Request):
             number=number,
             answer=None,
         )
-        run_agent(state)
-        return {"message": "Review bot is processing the comment"}
+        threading.Thread(target=_process_review_comment, args=(state,), daemon=True).start()
+        return {"message": "Review bot accepted the comment"}
 
     except Exception:
         logger.exception("Webhook processing failed")
