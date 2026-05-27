@@ -1,0 +1,215 @@
+name: CI Build & Optional Deploy
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      deploy_to_staging:
+        description: 'If true, deploy built artifact to the staging Lambda'
+        required: false
+        default: 'false'
+
+jobs:
+  build:
+    name: Build Lambda artifact
+    runs-on: ubuntu-latest
+    outputs:
+      s3_key: ${{ steps.set-s3-key.outputs.s3_key }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirement*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Rust toolchain (for packages like tiktoken)
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y
+          echo "CARGO_HOME=$HOME/.cargo" >> $GITHUB_ENV
+          echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Build dependencies and package
+        run: |
+          set -e
+          rm -rf build_pkg aws_lambda_artifact.zip
+          python -m pip install --upgrade pip setuptools wheel
+          echo "Installing requirements into build_pkg..."
+          python -m pip install -r requirement.txt -t build_pkg --verbose
+          echo "Post-install pip freeze:"
+          python -m pip freeze | head -n 30
+          echo "Contents of build_pkg (first 50 dirs):"
+          ls -la build_pkg | head -n 50
+          echo "Checking for fastapi in build_pkg:"
+          ls build_pkg | grep -i fastapi || echo "WARNING: fastapi directory not found!"
+          cp -R api *.py build_pkg || true
+          cd build_pkg
+          zip -r9 ../aws_lambda_artifact.zip .
+          cd ..
+
+      - name: Set S3 key
+        id: set-s3-key
+        run: |
+          echo "s3_key=aws_lambda_artifact.zip" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Verify artifact
+        run: |
+          set -e
+          echo "Artifact size:"; ls -lh aws_lambda_artifact.zip || true
+          echo "Top-level entries in zip:";
+          unzip -l aws_lambda_artifact.zip | awk 'NR>3 && NF>0 {print $4}' | awk -F"/" '{print $1}' | sort -u || true
+          echo "Listing first 200 entries:";
+          unzip -l aws_lambda_artifact.zip | sed -n '1,200p'
+
+          echo "Checking for key packages..."
+          if unzip -l aws_lambda_artifact.zip | grep -i "fastapi" -q; then
+            echo "fastapi found"
+          else
+            echo "ERROR: fastapi NOT found in artifact"; exit 1
+          fi
+
+          if unzip -l aws_lambda_artifact.zip | grep -iE "pydantic_core|_pydantic_core|pydantic_core.*\.so" -q; then
+            echo "pydantic_core native extension found"
+          else
+            echo "WARNING: pydantic_core native extension not found"
+          fi
+
+          if unzip -l aws_lambda_artifact.zip | grep -i "tiktoken" -q; then
+            echo "tiktoken found"
+          else
+            echo "tiktoken not found (may be okay if not required)"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-zip
+          path: aws_lambda_artifact.zip
+
+      - name: Configure AWS credentials for S3 upload
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
+
+      - name: Upload artifact to S3
+        env:
+          S3_KEY: ${{ steps.set-s3-key.outputs.s3_key }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
+        run: |
+          echo "Removing old Lambda artifact from S3..."
+          aws s3 rm s3://github-code-reviewer/${S3_KEY} --region ${AWS_REGION} || true
+          echo "Uploading aws_lambda_artifact.zip to S3 as $S3_KEY..."
+          aws s3 cp aws_lambda_artifact.zip s3://github-code-reviewer/${S3_KEY} --region ${AWS_REGION}
+          echo "Upload complete!"
+
+  deploy-staging:
+    name: Deploy to Staging (manual)
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_to_staging == 'true'
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-zip
+          path: .
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
+
+      - name: Deploy to Lambda (staging)
+        env:
+          FUNCTION_NAME: ${{ secrets.STAGING_LAMBDA_FUNCTION_NAME }}
+        run: |
+          if [ -z "$FUNCTION_NAME" ]; then echo "STAGING_LAMBDA_FUNCTION_NAME secret is not set" && exit 1; fi
+          aws lambda update-function-code --function-name "$FUNCTION_NAME" --zip-file fileb://aws_lambda_artifact.zip --region ${{ secrets.AWS_REGION || 'us-east-2' }}
+
+  deploy-auto:
+    name: Deploy to Staging (automated)
+    needs: build
+    runs-on: ubuntu-latest
+    # This job always runs after `build`. It will attempt to auto-deploy the
+    # artifact only when a staging function name and AWS credentials are
+    # available. Those can come from repository secrets or from an env file
+    # checked into the repo (env.local or .env). Using repo secrets is
+    # recommended for credentials.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Source env.local if present
+        run: |
+          if [ -f env.local ]; then
+            echo "Sourcing env.local"
+            set -a
+            . ./env.local
+            set +a
+          else
+            echo "No env.local found; relying on repository secrets"
+          fi
+
+      - name: Configure AWS credentials from secrets (if present)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
+        run: |
+          if [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "Configuring AWS CLI from repository secrets"
+            aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
+            aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
+            aws configure set region "${AWS_REGION:-us-east-2}"
+          else
+            echo "AWS secrets not provided in repository; skipping configure-aws-credentials action"
+          fi
+
+      # No local artifact download: we update Lambda from S3 only per repo policy
+
+      - name: Deploy artifact to Lambda (S3 only)
+        env:
+          S3_KEY: ${{ needs.build.outputs.s3_key }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
+          AUTO_DEPLOY_SECRET: ${{ secrets.AUTO_DEPLOY }}
+        run: |
+          # Proceed only when on main branch or AUTO_DEPLOY is enabled (secret or env.local)
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            echo "Running on main branch — allowing deploy"
+          elif [ "${AUTO_DEPLOY_SECRET}" = "true" ] || [ "${AUTO_DEPLOY:-false}" = "true" ]; then
+            echo "AUTO_DEPLOY enabled via secret or env — allowing deploy"
+          else
+            echo "Not on main and AUTO_DEPLOY not set; skipping auto-deploy"
+            exit 0
+          fi
+
+          if [ -z "${STAGING_LAMBDA_FUNCTION_NAME:-}" ]; then
+            echo "STAGING_LAMBDA_FUNCTION_NAME not set in secrets or env file; skipping auto-deploy"
+            exit 0
+          fi
+
+          if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "AWS credentials not set in secrets or env file; skipping auto-deploy"
+            exit 0
+          fi
+
+          echo "Updating Lambda function $STAGING_LAMBDA_FUNCTION_NAME from S3 (bucket: github-code-reviewer, key: $S3_KEY) with publish..."
+          aws lambda update-function-code --function-name "$STAGING_LAMBDA_FUNCTION_NAME" --s3-bucket github-code-reviewer --s3-key ${S3_KEY} --region ${AWS_REGION:-us-east-2} --publish
+          echo "Lambda update requested via S3 (published)."
