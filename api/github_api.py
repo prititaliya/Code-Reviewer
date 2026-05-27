@@ -25,13 +25,12 @@ async def github_webhook(request: Request):
 
     try:
         action = payload.get("action", "")
-        comment = payload.get("comment", {})
-        pull_request = payload.get("pull_request", {})
-        issue = payload.get("issue", {})
-        issue_pull_request = issue.get("pull_request", {})
-        repository = payload.get("repository", {})
-        sender = payload.get("sender", {})
-        number = issue.get("number") or pull_request.get("number") or issue_pull_request.get("number")
+        comment = payload.get("comment") or {}
+        issue = payload.get("issue") or {}
+        pull_request = issue.get("pull_request") or payload.get("pull_request") or {}
+        repository = payload.get("repository") or {}
+        sender = payload.get("sender") or {}
+        number = issue.get("number") or pull_request.get("number")
 
         logger.info(
             "Webhook received action=%s repository=%s comment_present=%s",
@@ -40,25 +39,28 @@ async def github_webhook(request: Request):
             bool(comment),
         )
 
-        if (action == "created" or action == "edited") and comment:
-            if "@review-bot" in comment.get("body", ""):
-                logger.info("Review bot mentioned in comment")
-                if not pull_request:
-                    pull_request = issue_pull_request
-                state = CommentReviewBotState(
-                    action=action,
-                    comment=comment,
-                    pull_request=pull_request,
-                    issue=issue,
-                    repository=repository,
-                    sender=sender,
-                    number=number,
-                    answer=None,
-                )
-                run_agent(state)
-                return {"message": "Review bot is processing the comment"}
+        if action not in {"created", "edited"}:
+            return {"message": f"Ignored action: {action}"}
 
-        return {"message": "Webhook received"}
+        if "@review-bot" not in (comment.get("body") or ""):
+            return {"message": "Ignored: bot not mentioned"}
+
+        if not pull_request:
+            return {"message": "Ignored: not a PR comment"}
+
+        logger.info("Review bot mentioned in comment")
+        state = CommentReviewBotState(
+            action=action,
+            comment=comment,
+            issue=issue,
+            pull_request=pull_request,
+            repository=repository,
+            sender=sender,
+            number=number,
+            answer=None,
+        )
+        run_agent(state)
+        return {"message": "Review bot is processing the comment"}
 
     except Exception:
         logger.exception("Webhook processing failed")
