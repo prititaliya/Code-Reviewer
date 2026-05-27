@@ -67,15 +67,25 @@ def get_model(
             raise e
 
 def Orchestrator(state: CommentReviewBotState) -> CommentReviewBotState:
-    # logger.info("Orchestrator started processing the state for comment ID: %s", state.comment.get("id"))    
     pull_request = state.get("pull_request") or {}
     issue = state.get("issue") or {}
     issue_pull_request = issue.get("pull_request") or {}
 
     pull_request_url = pull_request.get("url") or issue_pull_request.get("url")
-    pull_request_diff_url = pull_request.get("diff_url")
+    pull_request_diff_url = (
+        pull_request.get("diff_url")
+        or issue_pull_request.get("diff_url")
+        or pull_request_url
+    )
     if not pull_request_url and not pull_request_diff_url:
         raise KeyError("pull_request.url")
+
+    if not pull_request_diff_url:
+        raise ValueError("Missing pull_request.diff_url or pull_request.url in webhook state")
+
+    if not pull_request_diff_url.endswith(".diff"):
+        pull_request_diff_url = pull_request_diff_url + "/diff"
+
     print("Fetching pull request diff from:", pull_request_diff_url)
     pull_request_diff = requests.get(pull_request_diff_url).text   
     system_message = SystemMessage(content="You are a Pull Request Question Answering Bot. Your task is to answer questions related to a Pull Request based on the review comments, code changes, and other relevant information. You should provide clear and concise answers to the questions asked by users.")

@@ -47,8 +47,8 @@ class ReviewState(TypedDict, total=False):
 class CommentReviewBotState(TypedDict):
     action: str
     comment: dict
-    pull_request: dict
     issue: dict
+    pull_request: dict
     repository: dict
     sender: dict
     number: int
