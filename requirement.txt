@@ -10,3 +10,4 @@ fastapi>=0.95.0
 mangum>=0.15.0
 tiktoken==0.7.0
 grandalf
+langchain-experimental
